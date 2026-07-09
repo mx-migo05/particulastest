@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Sintetizador Gestual de Partículas 3D</title>
+    <!-- Tailwind CSS para una interfaz de usuario fluida y de alta calidad -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #020205;
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .glass-panel {
+            background: rgba(10, 10, 20, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+        }
+        /* Animaciones para estados visuales */
+        @keyframes pulse-glow {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(0.95); }
+        }
+        .anim-pulse-glow {
+            animation: pulse-glow 2s infinite ease-in-out;
+        }
+        /* Espejo dinámico para cámara frontal */
+        .mirror {
+            transform: scaleX(-1);
+        }
+    </style>
+</head>
+<body>
+    
+    <div id="container" class="relative w-screen h-screen overflow-hidden">
+        
+        <!-- Lienzo 3D principal -->
+        <div id="canvas-container" class="absolute inset-0 w-full h-full z-0"></div>
+
+        <!-- HUD Informativo Inteligente y Adaptivo (Se reajusta automáticamente en móviles) -->
+        <div id="ui" class="absolute top-4 left-4 z-10 max-w-sm w-[calc(100vw-2rem)] sm:w-80 glass-panel rounded-2xl p-4 text-white pointer-events-none transition-all duration-300">
+            <div class="flex items-center justify-between mb-2">
+                <h1 class="text-sm sm:text-base font-bold bg-gradient-to-r from-cyan-400 to-indigo-400 bg-clip-text text-transparent">
+                    Sintetizador de Partículas
+                </h1>
+                <span id="camera-badge" class="px-2 py-0.5 text-[9px] font-semibold rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 flex items-center gap-1">
+                    <i class="fa-solid fa-spinner fa-spin"></i> Solicitando cámara...
+                </span>
+            </div>
+
+            <!-- Panel de estado del sistema -->
+            <div class="bg-black/40 rounded-xl p-2.5 mb-3 border border-white/5 space-y-1 text-xs">
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400 text-[10px] sm:text-xs">Rastreo de Mano:</span>
+                    <span id="hand-status" class="font-semibold text-red-400 flex items-center gap-1 text-[10px] sm:text-xs">
+                        <span class="w-1.5 h-1.5 rounded-full bg-red-500 inline-block anim-pulse-glow"></span> Buscando
+                    </span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400 text-[10px] sm:text-xs">Gesto Detectado:</span>
+                    <span id="gesture-detected" class="font-semibold text-cyan-400 text-[10px] sm:text-xs">Ninguno</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400 text-[10px] sm:text-xs">Forma Actual:</span>
+                    <span id="current-template" class="font-semibold text-indigo-400 text-[10px] sm:text-xs">Cargando...</span>
+                </div>
+            </div>
+
+            <!-- Guía Rápida de Gestos (Control Exclusivo) -->
+            <div class="space-y-1 text-[10px] sm:text-xs text-gray-300 border-t border-white/5 pt-2">
+                <div class="flex items-center gap-1.5">
+                    <span>🖐️</span> <span><strong>Mano Abierta:</strong> Expandir y Rotar</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <span>✊</span> <span><strong>Puño Cerrado:</strong> Implosión</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <span>👌</span> <span><strong>Pellizco (Pinch):</strong> Cambiar de Forma</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <span>↔️</span> <span><strong>Posición X:</strong> Mezclar Colores</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pantalla de Error por Entorno No Seguro (Detecta fallos de WhatsApp/Local file) -->
+        <div id="error-screen" class="hidden absolute inset-0 z-20 flex items-center justify-center bg-[#020205]/95 p-4 text-white text-center">
+            <div class="max-w-md w-full glass-panel rounded-3xl p-6 sm:p-8 space-y-5 border border-red-500/20">
+                <div class="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center mx-auto text-red-400">
+                    <i class="fa-solid fa-triangle-exclamation text-2xl"></i>
+                </div>
+                <h2 class="text-lg sm:text-xl font-bold text-red-400">
+                    Acceso a Cámara Bloqueado por el Móvil
+                </h2>
+                
+                <div id="error-details" class="text-xs sm:text-sm text-gray-300 space-y-3 text-left bg-black/40 p-4 rounded-xl border border-white/5">
+                    <!-- Se inyecta dinámicamente la explicación de WhatsApp/Local file -->
+                </div>
+
+                <div class="text-[11px] text-gray-400 pt-2 border-t border-white/5">
+                    Tip: Copia la dirección y pégala directamente en <strong>Chrome</strong> (Android) o <strong>Safari</strong> (iOS).
+                </div>
+            </div>
+        </div>
+
+        <!-- Vista previa de cámara en tiempo real -->
+        <div class="absolute bottom-4 right-4 z-10 w-24 h-18 sm:w-36 sm:h-28 bg-black rounded-xl overflow-hidden border border-white/20 shadow-2xl">
+            <video id="webcam" class="w-full h-full object-cover mirror" autoplay playsinline muted></video>
+        </div>
+
+    </div>
+
+    <!-- Import Map para cargar Three.js de manera óptima -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        const PARTICLE_COUNT = 12000;
+        let currentTemplateIndex = 0;
+        const templates = ['Sphere', 'Heart', 'Flower', 'Saturn', 'Fireworks'];
+        let activeStream = null;
+        let isPinching = false;
+        let expansionFactor = 1.0;
+        let rotationSpeedY = 0.003;
+
+        // --- Configuración Básica de Three.js ---
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x020205, 0.04);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        camera.position.z = 5.0;
+
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(PARTICLE_COUNT * 3);
+        const colors = new Float32Array(PARTICLE_COUNT * 3);
+        const targets = new Float32Array(PARTICLE_COUNT * 3);
+
+        // Inicialización caótica de las partículas
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+            positions[i * 3] = (Math.random() - 0.5) * 12;
+            positions[i * 3 + 1] = (Math.random() - 0.5) * 12;
+            positions[i * 3 + 2] = (Math.random() - 0.5) * 12;
+            
+            colors[i * 3] = 0.2;
+            colors[i * 3 + 1] = 0.8;
+            colors[i * 3 + 2] = 1.0;
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        // Textura suave circular generada al vuelo
+        function createParticleTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 32;
+            canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.8)');
+            gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 32, 32);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        const material = new THREE.PointsMaterial({
+            size: 0.04,
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.85,
+            blending: THREE.AdditiveBlending,
+            map: createParticleTexture(),
+            depthWrite: false
+        });
+
+        const particleSystem = new THREE.Points(geometry, material);
+        scene.add(particleSystem);
+
+        // --- Fórmulas Geométricas de las Formas ---
+        function setTemplate(name) {
+            document.getElementById('current-template').innerText = getSpanishName(name);
+
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const i3 = i * 3;
+                let x, y, z;
+
+                if (name === 'Sphere') {
+                    const phi = Math.acos(-1 + (2 * i) / PARTICLE_COUNT);
+                    const theta = Math.sqrt(PARTICLE_COUNT * Math.PI) * phi;
+                    x = Math.cos(theta) * Math.sin(phi) * 2.2;
+                    y = Math.sin(theta) * Math.sin(phi) * 2.2;
+                    z = Math.cos(phi) * 2.2;
+                } 
+                else if (name === 'Heart') {
+                    const t = (i / PARTICLE_COUNT) * Math.PI * 2;
+                    x = 1.7 * Math.pow(Math.sin(t), 3);
+                    y = 1.35 * Math.cos(t) - 0.5 * Math.cos(2*t) - 0.2 * Math.cos(3*t) - 0.1 * Math.cos(4*t);
+                    z = (Math.random() - 0.5) * 0.6;
+                }
+                else if (name === 'Flower') {
+                    const t = (i / PARTICLE_COUNT) * Math.PI * 2 * 6; 
+                    const r = 2.4 * Math.sin(4 * t); 
+                    x = r * Math.cos(t);
+                    y = r * Math.sin(t);
+                    z = (Math.random() - 0.5) * 0.4;
+                }
+                else if (name === 'Saturn') {
+                    if (i < PARTICLE_COUNT * 0.35) { 
+                        const phi = Math.acos(-1 + (2 * i) / (PARTICLE_COUNT * 0.35));
+                        const theta = Math.sqrt(PARTICLE_COUNT * 0.35 * Math.PI) * phi;
+                        x = Math.cos(theta) * Math.sin(phi) * 1.1;
+                        y = Math.sin(theta) * Math.sin(phi) * 1.1;
+                        z = Math.cos(phi) * 1.1;
+                    } else { 
+                        const angle = Math.random() * Math.PI * 2;
+                        const radius = 1.6 + Math.random() * 1.1;
+                        x = Math.cos(angle) * radius;
+                        y = (Math.random() - 0.5) * 0.15;
+                        z = Math.sin(angle) * radius;
+                    }
+                }
+                else if (name === 'Fireworks') {
+                    const speed = 0.5 + Math.random() * 3.0;
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.random() * Math.PI;
+                    x = speed * Math.sin(phi) * Math.cos(theta);
+                    y = speed * Math.sin(phi) * Math.sin(theta);
+                    z = speed * Math.cos(phi);
+                }
+
+                targets[i3] = x;
+                targets[i3 + 1] = y;
+                targets[i3 + 2] = z;
+            }
+        }
+
+        function getSpanishName(name) {
+            const dictionary = {
+                'Sphere': 'Esfera',
+                'Heart': 'Corazón 3D',
+                'Flower': 'Flor Galáctica',
+                'Saturn': 'Planeta Saturno',
+                'Fireworks': 'Supernova'
+            };
+            return dictionary[name] || name;
+        }
+
+        setTemplate('Sphere');
+
+        const videoElement = document.getElementById('webcam');
+        
+        async function startCameraDirectly() {
+            const badge = document.getElementById('camera-badge');
+            
+            // Requisitos de vídeo robustos y flexibles para móviles y ordenadores
+            const constraints = {
+                video: {
+                    facingMode: 'user',
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
+                },
+                audio: false
+            };
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                handleCameraSuccess(stream);
+            } catch (err) {
+                console.warn("Fallo en resolución idónea, intentando degradación...", err);
+                try {
+                    // Intento de compatibilidad máxima (cualquier cámara disponible)
+                    const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    handleCameraSuccess(fallbackStream);
+                } catch (fallbackErr) {
+                    handleCameraFailure(fallbackErr);
+                }
+            }
+        }
+
+        function handleCameraSuccess(stream) {
+            activeStream = stream;
+            videoElement.srcObject = stream;
+            
+            videoElement.play().then(() => {
+                const badge = document.getElementById('camera-badge');
+                badge.innerHTML = `<i class="fa-solid fa-circle-check"></i> Activa`;
+                badge.className = "px-2 py-0.5 text-[9px] font-semibold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1";
+                
+                // Iniciar procesamiento de fotogramas
+                requestAnimationFrame(processFrame);
+            }).catch(err => {
+                handleCameraFailure(err);
+            });
+        }
+
+        function handleCameraFailure(err) {
+            const badge = document.getElementById('camera-badge');
+            badge.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Error`;
+            badge.className = "px-2 py-0.5 text-[9px] font-semibold rounded-full bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-1";
+            
+            const errorScreen = document.getElementById('error-screen');
+            const errorDetails = document.getElementById('error-details');
+            errorScreen.classList.remove('hidden');
+
+            const isWhatsApp = window.location.href.includes('whatsapp') || window.location.protocol.startsWith('content');
+            const isLocalFile = window.location.protocol === 'file:';
+
+            if (isWhatsApp || isLocalFile) {
+                errorDetails.innerHTML = `
+                    <p class="font-bold text-yellow-400"><i class="fa-solid fa-circle-exclamation mr-1"></i> Entorno de Ejecución No Seguro Detectado</p>
+                    <p class="mt-1">Estás intentando ejecutar la aplicación directamente desde el visor de archivos de WhatsApp o un archivo local.</p>
+                    <p class="mt-2 text-white font-semibold">¿Cómo solucionarlo en 1 minuto?</p>
+                    <ul class="list-disc list-inside space-y-1 mt-1 text-[11px] text-gray-300">
+                        <li>Sube este archivo .html a un servidor seguro gratuito como <strong class="text-cyan-400">GitHub Pages</strong>, <strong class="text-cyan-400">Vercel</strong> o <strong class="text-cyan-400">Netlify</strong>.</li>
+                        <li>Los navegadores solo activan la cámara bajo conexiones seguras <strong class="text-emerald-400">https://</strong>.</li>
+                    </ul>
+                `;
+            } else {
+                errorDetails.innerHTML = `
+                    <p class="font-bold text-red-400"><i class="fa-solid fa-circle-xmark mr-1"></i> Permiso Denegado o Error de Sensor</p>
+                    <p class="mt-1">Detalles del error: <code class="text-yellow-400 text-xs">${err.name || err}</code></p>
+                    <p class="mt-2">Asegúrate de conceder permisos de acceso a la cámara en la configuración de tu navegador o del sistema operativo.</p>
+                `;
+            }
+        }
+
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        // Configuración fluida de bajo impacto
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 0, // 0 para máxima velocidad y evitar lag en smartphones
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults((results) => {
+            const handStatusEl = document.getElementById('hand-status');
+            const gestureDetectedEl = document.getElementById('gesture-detected');
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                handStatusEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block anim-pulse-glow"></span> Detectada`;
+                handStatusEl.className = "font-semibold text-emerald-400 flex items-center gap-1 text-[10px] sm:text-xs";
+
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // 1. Detección de Pellizco (Pinch) para cambiar de forma
+                const thumb = landmarks[4];
+                const index = landmarks[8];
+                const pinchDistance = Math.sqrt(Math.pow(thumb.x - index.x, 2) + Math.pow(thumb.y - index.y, 2));
+                
+                if (pinchDistance < 0.045) {
+                    if (!isPinching) {
+                        isPinching = true;
+                        gestureDetectedEl.innerText = "👌 Pellizco (Cambio de Forma)";
+                        currentTemplateIndex = (currentTemplateIndex + 1) % templates.length;
+                        setTemplate(templates[currentTemplateIndex]);
+                    }
+                } else if (pinchDistance > 0.09) {
+                    isPinching = false;
+                }
+
+                // 2. Detección de Mano Abierta vs Puño Cerrado
+                if (!isPinching) {
+                    const isOpen = landmarks[12].y < landmarks[9].y;
+                    if (isOpen) {
+                        expansionFactor = 1.6;
+                        rotationSpeedY = 0.012;
+                        gestureDetectedEl.innerText = "🖐️ Mano Abierta (Girar/Expandir)";
+                    } else {
+                        expansionFactor = 0.45;
+                        rotationSpeedY = 0.002;
+                        gestureDetectedEl.innerText = "✊ Puño (Implosión)";
+                    }
+                }
+
+                // 3. Mezcla de Color en tiempo real basado en la posición de la muñeca
+                const baseLandmark = landmarks[0];
+                const colorAttr = geometry.attributes.color.array;
+                
+                for (let i = 0; i < PARTICLE_COUNT; i++) {
+                    colorAttr[i * 3] = baseLandmark.x;            // Canal Rojo
+                    colorAttr[i * 3 + 1] = baseLandmark.y * 0.8;  // Canal Verde
+                    colorAttr[i * 3 + 2] = 1.0 - baseLandmark.x;  // Canal Azul
+                }
+                geometry.attributes.color.needsUpdate = true;
+
+            } else {
+                handStatusEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-red-500 inline-block anim-pulse-glow"></span> Buscando`;
+                handStatusEl.className = "font-semibold text-red-400 flex items-center gap-1 text-[10px] sm:text-xs";
+                gestureDetectedEl.innerText = "Ninguno";
+                
+                expansionFactor = 1.0;
+                rotationSpeedY = 0.003;
+            }
+        });
+
+        // Bucle de renderizado de fotogramas asíncrono para evitar cuelgues
+        let isProcessing = false;
+        async function processFrame() {
+            if (videoElement.readyState >= 2 && !isProcessing) {
+                isProcessing = true;
+                try {
+                    await hands.send({ image: videoElement });
+                } catch (err) {
+                    console.warn("Fallo al evaluar fotograma:", err);
+                }
+                isProcessing = false;
+            }
+            requestAnimationFrame(processFrame);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            particleSystem.rotation.y += rotationSpeedY;
+            particleSystem.rotation.x += 0.0006;
+
+            const posAttr = geometry.attributes.position.array;
+            for (let i = 0; i < PARTICLE_COUNT * 3; i++) {
+                // Interpolación fluida hacia los puntos objetivo de cada forma geométrica
+                posAttr[i] += (targets[i] * expansionFactor - posAttr[i]) * 0.09;
+            }
+            geometry.attributes.position.needsUpdate = true;
+
+            renderer.render(scene, camera);
+        }
+
+        // --- Eventos de Redimensionamiento Responsivo ---
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        });
+
+        // Ejecución inmediata del arranque
+        window.onload = () => {
+            startCameraDirectly();
+            animate();
+        };
+    </script>
+</body>
+</html>
